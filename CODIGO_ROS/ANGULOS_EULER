@@ -1,0 +1,328 @@
+import serial
+import numpy 
+import matplotlib.pyplot as plt
+import numpy.matlib as npm
+from copy import copy, deepcopy
+import time
+import math 
+
+SENSITIVITY_ACCEL = 2.0/32768.0
+SENSITIVITY_GYRO = 250.0/32768.0
+SENSITIVITY_MAGN = (10.0 * 4800.0) / 32768.0
+Scale = [169.19, 34.425, 183.105]
+offsetsmag=[73.25, 267.25, 247.5]
+
+
+A = 0.6
+B = 0.4
+dt = 0.01
+rad2deg = 180/3.141592
+
+data = serial.Serial('COM12',9600,timeout=10)
+print(data)
+
+datos=numpy.zeros((299,11)) #bits
+datos1=numpy.zeros((299,11)) #no calibrados
+datos2=numpy.zeros((299,11)) # calibrados
+
+Roll=numpy.zeros(((299+1),4))
+Pitch=numpy.zeros(((299+1),4))
+Yaw=numpy.zeros(((299+1),4))
+
+
+value = input("\nQuiere adquirir los datos S/N \n\n")
+
+if value == 'S' or value == 's':
+    print("\nCapturando datos \n")
+    data.write(b'H')
+    for i in range(299):
+        rec=data.readline() #byte
+        print(rec)
+        rec=rec.decode("utf-8") #string
+        print(rec)
+        rec=rec.split() #lista
+        print(rec)
+        datos[i][:]=rec
+    print("\nTermina \n")
+    print(datos,"\n")
+    offsets = [npm.mean(datos[:,1]), npm.mean(datos[:,2]), npm.mean(datos[:,3])-(32768/2), npm.mean(datos[:,4]), npm.mean(datos[:,5]), npm.mean(datos[:,6])]
+    print(type(datos))
+    print(type(datos[0,2]),type(datos[0][2]))
+    print(f'{datos[0,2]},{datos[0][2]}')
+            
+
+    datos1 = deepcopy(datos)
+    #print("datos1",datos1)
+    datos2 = deepcopy(datos)
+    datos3 = deepcopy(datos)
+    datos4 = deepcopy(datos)
+    #print("datos2",datos2)
+
+    """""
+    c1 = 8
+    c2 = 9
+    c3 = 10
+    mayorx = 0
+    menorx = 10000
+    mayory = 0
+    menory = 10000
+    mayorz = 0
+    menorz = 10000
+    columnax = []
+    columnay = []
+    columnaz = []
+    offsetsmag = []
+    for fila in datos2:
+        columnax.append(fila[c1])
+        columnay.append(fila[c2])
+        columnaz.append(fila[c3])
+
+        
+    for k in range(0,299):
+        if columnax[k] > mayorx:
+            mayorx = columnax[k]
+
+        if columnax[k] < menorx:
+            menorx = columnax[k]
+
+        if columnay[k] > mayory:
+            mayory = columnay[k]
+
+        if columnay[k] < menory:
+            menory = columnay[k]
+
+        if columnaz[k] > mayorz:
+            mayorz = columnaz[k]
+
+        if columnaz[k] < menorz:
+            menorz = columnaz[k]
+
+        valor1 = (mayorx + menorx)/2
+        valor2 = (mayory + menory)/2
+        valor3 = (mayorz + menorz)/2
+
+        offsetsmag.append(valor1)
+        offsetsmag.append(valor2)
+        offsetsmag.append(valor3)
+    """
+
+    #No calibrados
+    for i in range(0,3):
+            for j in range(0,299):
+                datos1[j][i+1] = (datos1[j,i+1])*SENSITIVITY_ACCEL
+                datos1[j][i+4] = (datos1[j,i+4])*SENSITIVITY_GYRO
+                datos1[j][i+8] = (datos1[j,i+8])*SENSITIVITY_MAGN
+    #print("...datos1 \n",datos1)
+
+    f = plt.figure(1)
+    ax1 = f.subplots(2,2)
+    f.suptitle('Acelerómetro no calibrado  MPU9250')
+    ax1[0,0].plot(datos1[:,0], datos1[:,1])
+    ax1[0,0].set_title('ax')
+    ax1[0,1].plot(datos1[:,0], datos1[:,2])
+    ax1[0,1].set_title('ay')
+    ax1[1,0].plot(datos1[:,0], datos1[:,3])
+    ax1[1,0].set_title('az')
+    ax1[1,1].plot(datos1[:,0], datos1[:,1], label='ax')
+    ax1[1,1].plot(datos1[:,0], datos1[:,2], label='ay')
+    ax1[1,1].plot(datos1[:,0], datos1[:,3], label='az')
+    ax1[1,1].set_title('ax, ay y az')
+    ax1[1,1].legend(loc='best')
+    f.show()
+
+    g = plt.figure(2)
+    ax2 = g.subplots(2,2)
+    g.suptitle('Giróscopio no calibrado  MPU9250')
+    ax2[0,0].plot(datos1[:,0], datos1[:,4])
+    ax2[0,0].set_title('gx')
+    ax2[0,1].plot(datos1[:,0], datos1[:,5])
+    ax2[0,1].set_title('gy')
+    ax2[1,0].plot(datos1[:,0], datos1[:,6])
+    ax2[1,0].set_title('gz')
+    ax2[1,1].plot(datos1[:,0], datos1[:,4], label='gx')
+    ax2[1,1].plot(datos1[:,0], datos1[:,5], label='gy')
+    ax2[1,1].plot(datos1[:,0], datos1[:,6], label='gz')
+    ax2[1,1].set_title('gx, gy y gz')
+    ax2[1,1].legend(loc='best')
+    g.show()
+
+    #Calibrados
+    for i in range(0,3):
+        for j in range(0,299):
+            datos2[j][i+1] = ((datos2[j,i+1])-offsets[i])*SENSITIVITY_ACCEL
+            datos2[j][i+4] = ((datos2[j,i+4])-offsets[i+3])*SENSITIVITY_GYRO
+            datos2[j][i+8] = ((datos2[j,i+8])-offsetsmag[i])*SENSITIVITY_MAGN
+
+
+    #print("...datos2 \n",datos2)
+    
+    h = plt.figure(3)
+    ax3 = h.subplots(2,2)
+    h.suptitle('Acelerómetro calibrado  MPU9250')
+    ax3[0,0].plot(datos2[:,0], datos2[:,1])
+    ax3[0,0].set_title('ax')
+    ax3[0,1].plot(datos2[:,0], datos2[:,2])
+    ax3[0,1].set_title('ay')
+    ax3[1,0].plot(datos2[:,0], datos2[:,3])
+    ax3[1,0].set_title('az')
+    ax3[1,1].plot(datos2[:,0], datos2[:,1], label='ax')
+    ax3[1,1].plot(datos2[:,0], datos2[:,2], label='ay')
+    ax3[1,1].plot(datos2[:,0], datos2[:,3], label='az')
+    ax3[1,1].set_title('ax, ay y az')
+    ax3[1,1].legend(loc='lower right')
+    h.show()
+
+
+    
+    i = plt.figure(4)
+    ax4 = i.subplots(2,2)
+    i.suptitle('Giróscopio calibrado MPU9250')
+    ax4[0,0].plot(datos2[:,0], datos2[:,4])
+    ax4[0,0].set_title('gx')
+    ax4[0,1].plot(datos2[:,0], datos2[:,5])
+    ax4[0,1].set_title('gy')
+    ax4[1,0].plot(datos2[:,0], datos2[:,6])
+    ax4[1,0].set_title('gz')
+    ax4[1,1].plot(datos2[:,0], datos2[:,4], label='gx')
+    ax4[1,1].plot(datos2[:,0], datos2[:,5], label='gy')
+    ax4[1,1].plot(datos2[:,0], datos2[:,6], label='gz')
+    ax4[1,1].set_title('gx, gy y gz')
+    ax4[1,1].legend(loc='lower left')
+    i.show()
+
+    
+    o = plt.figure(11)
+    ax8 = o.subplots(2,2)
+    o.suptitle('magnetometro calibrado MPU9250')
+    ax8[0,0].scatter(datos2[:,8],datos2[:,9], label='MXY', color='green')
+    ax8[0,0].set_title('MXY')
+    ax8[0,1].scatter(datos2[:,8],datos2[:,10], label='MXZ', color='blue')
+    ax8[0,1].set_title('MXZ')
+    ax8[1,0].scatter(datos2[:,9],datos2[:,10], label='MYZ', color='red')
+    ax8[1,0].set_title('MYZ')
+    ax8[1,1].scatter(datos2[:,8], datos2[:,9], label='MXY', color="green")
+    ax8[1,1].scatter(datos2[:,8], datos2[:,10], label='MXZ', color="blue")
+    ax8[1,1].scatter(datos2[:,9], datos2[:,10], label='MYZ', color ="red")
+    ax8[1,1].set_title('MXY, MXZ y MYZ')
+    ax8[1,1].legend(loc='lower left')
+    o.show()
+
+
+    #ANGULOS
+    Roll[299][0] = 299
+    Pitch[299][0] = 299
+    Yaw[299][0] = 299
+    for i in range(0,299):
+        Roll[i][0] = i
+        Pitch[i][0] = i
+        Yaw[i][0] = i
+        #AcelerómetroS
+        Roll[i+1][1] = (math.atan2(datos2[i,2],datos2[i,3]))*rad2deg
+        Pitch[i+1][1] = (math.atan2(-datos2[i,1],math.sqrt((datos2[i,2]*datos2[i,2])+(datos2[i,3]*datos2[i,3]))))*rad2deg
+        #print("RollA[%d+1][1]: ",i,Roll[i+1][1])
+        #Giroscópio
+        Roll[i+1][2] = Roll[i][3]+((datos2[i,4]*dt)*rad2deg)
+        Pitch[i+1][2] = Pitch[i][3]+((datos2[i,5]*dt)*rad2deg)
+        #print("RollG[%d+1][2]: ",i,Roll[i+1][2])
+       
+
+        #Filtro complementario
+        Roll[i+1][3] = (A*Roll[i+1][2])+(B*Roll[i+1][1])
+        Pitch[i+1][3] = (A*Pitch[i+1][2])+(B*Pitch[i+1][1])
+        #print("RollC[%d+1][3]: ",i,Roll[i+1][3])
+        
+        #Yaw
+        Bfy = datos2[i, 10] * math.sin(Roll[i + 1][3]) - datos2[i, 9] * math.cos(Roll[i + 1][3])
+        Bfz = datos2[i, 8] * math.cos(Pitch[i + 1][3]) + datos2[i, 9] * math.sin(Pitch[i + 1][3]) * math.sin(Roll[i + 1][3]) + datos2[i,10] * math.sin(Pitch[i + 1][3]) * math.cos(Roll[i + 1][3])
+        
+        #Magnetometro
+        Yaw[i + 1][1] = math.atan2(-Bfy, Bfz) * rad2deg #graficar
+        """if Yaw[i+1][1] < 0.0 and Yaw[i+1][3] > 180.0:
+            Yaw[i+1][1] = Yaw[i+1][1] + 360.0"""
+
+        #Giroscópio
+        Yaw[i+1][2] = Yaw[i][3]+((datos2[i,6]*dt)*rad2deg) #graficar
+        """if Yaw[i+1][2] < 0.0 and Yaw[i+1][2] > 180.0:
+            Yaw[i+1][2] = Yaw[i+1][2]+360.0"""
+
+        #Filtro complementario
+        Yaw[i+1][3] = (A*Yaw[i+1][2])+(B*Yaw[i+1][1]) #graficar
+        #if (Yaw[i+1][3] < 0 and Yaw[i+1][3] > -180):
+        #    Yaw[i+1][3] = Yaw[i+1][3]+360
+
+    j = plt.figure(8)
+    ax5 = j.subplots(2,2)
+    j.suptitle('ÁNGULO ROLL')
+    ax5[0,0].plot(Roll[:,0], Roll[:,1])
+    ax5[0,0].set_title('Roll Acelerómetro')
+    ax5[0,0].set_xlabel("Muestras")
+    ax5[0,0].set_ylabel("Grados")
+    ax5[0,1].plot(Roll[:,0], Roll[:,2])
+    ax5[0,1].set_title('Roll Giroscópio')
+    ax5[0,1].set_xlabel("Muestras")
+    ax5[0,1].set_ylabel("Grados")
+    ax5[1,0].plot(Roll[:,0], Roll[:,3])
+    ax5[1,0].set_title('Roll Complementario')
+    ax5[1,0].set_xlabel("Muestras")
+    ax5[1,0].set_ylabel("Grados")
+    ax5[1,1].plot(Roll[:,0], Roll[:,1], label='Acel')
+    ax5[1,1].plot(Roll[:,0], Roll[:,2], label='Giro')
+    ax5[1,1].plot(Roll[:,0], Roll[:,3], label='FC')
+    ax5[1,1].set_title('Roll A, G y FC')
+    ax5[1,1].set_xlabel("Muestras")
+    ax5[1,1].set_ylabel("Grados")
+    ax5[1,1].legend(loc='upper left')
+    j.show()
+
+    k = plt.figure(9)
+    ax6 = k.subplots(2,2)
+    k.suptitle('ÁNGULO PITCH')
+    ax6[0,0].plot(Pitch[:,0], Pitch[:,1])
+    ax6[0,0].set_title('Pitch Acelerómetro')
+    ax6[0,0].set_xlabel("Muestras")
+    ax6[0,0].set_ylabel("Grados")
+    ax6[0,1].plot(Pitch[:,0], Pitch[:,2])
+    ax6[0,1].set_title('Pitch Giroscópio')
+    ax6[0,1].set_xlabel("Muestras")
+    ax6[0,1].set_ylabel("Grados")
+    ax6[1,0].plot(Pitch[:,0], Pitch[:,3])
+    ax6[1,0].set_title('Pitch Complementario')
+    ax6[1,0].set_xlabel("Muestras")
+    ax6[1,0].set_ylabel("Grados")
+    ax6[1,1].plot(Pitch[:,0], Pitch[:,1], label="Acel")
+    ax6[1,1].plot(Pitch[:,0], Pitch[:,2], label="Giro")
+    ax6[1,1].plot(Pitch[:,0], Pitch[:,3], label="FC")
+    ax6[1,1].set_title('Pitch A, G y FC')
+    ax6[1,1].set_xlabel("Muestras")
+    ax6[1,1].set_ylabel("Grados")
+    ax6[1,1].legend(loc='upper right')
+    k.show()
+
+    l = plt.figure(10)
+    ax7 = l.subplots(2,2)
+    l.suptitle('ÁNGULO YAW')
+    ax7[0,0].plot(Yaw[:,0], Yaw[:,1])
+    ax7[0,0].set_title('Yaw Magnetometro')
+    ax7[0,0].set_xlabel("Muestras")
+    ax7[0,0].set_ylabel("Grados")
+    ax7[0,1].plot(Yaw[:,0], Yaw[:,2])
+    ax7[0,1].set_title('Yaw Giroscópio')
+    ax7[0,1].set_xlabel("Muestras")
+    ax7[0,1].set_ylabel("Grados")
+    ax7[1,0].plot(Yaw[:,0], Yaw[:,3])
+    ax7[1,0].set_title('Yaw Complementario')
+    ax7[1,0].set_xlabel("Muestras")
+    ax7[1,0].set_ylabel("Grados")
+    ax7[1,1].plot(Yaw[:,0], Yaw[:,1], label="Acel")
+    ax7[1,1].plot(Yaw[:,0], Yaw[:,2], label="Giro")
+    ax7[1,1].plot(Yaw[:,0], Yaw[:,3], label="FC")
+    ax7[1,1].set_title('Yaw A, G y FC')
+    ax7[1,1].set_xlabel("Muestras")
+    ax7[1,1].set_ylabel("Grados")
+    ax7[1,1].legend(loc='upper right')
+    l.show()
+    
+    plt.show()
+
+else:
+    print("\nAdios\n")
