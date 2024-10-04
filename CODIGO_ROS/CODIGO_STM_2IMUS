@@ -1,0 +1,286 @@
+//----------------------------------------------------------------------------
+//                                BIBLIOTECAS
+//----------------------------------------------------------------------------
+#include "mbed.h"
+
+// REGISTRO COMUNICACION I2C
+#define    MPU9250_address            0xD0 // 7 bits para comunicacion I2C 0X68, con 1 corrimiento a la izquierda
+#define    MPU9250_address_2          0xD0 // 7 bits para comunicacion I2C 0X68, con 1 corrimiento a la izquierda
+
+#define    MAG_ADDRESS_MAGNETOMETRO         0x18 // Magnetómetro
+#define    MAG_ADDRESS_MAGNETOMETRO_2         0x18 // Magnetómetro
+
+// ESCALAS DE GIROSCOPIO 
+#define    GYRO_FULL_SCALE_250_DPS    0x00 // SCALE_250 (°/s) = 0 (0x00 = 000|00|000)
+#define    GYRO_FULL_SCALE_500_DPS    0x08 // SCALE_500 (°/s) = 1 (0x08 = 000|01|000)
+#define    GYRO_FULL_SCALE_1000_DPS   0x10 // SCALE_1000 (°/s) = 2 (0x10 = 000|10|000)
+#define    GYRO_FULL_SCALE_2000_DPS   0x18 // SCALE_2000 (°/s) = 3 (0x18 = 000|11|000)
+
+// ESCALAS DE ACELEROMETRO
+#define    ACC_FULL_SCALE_2_G        0x00 // SCALE_2_G (g) = 0 (0x00 = 000|00|000)
+#define    ACC_FULL_SCALE_4_G        0x08 // SCALE_4_G (g) = 1 (0x08 = 000|01|000)
+#define    ACC_FULL_SCALE_8_G        0x10 // SCALE_8_G (g) = 2 (0x10 = 000|10|000)
+#define    ACC_FULL_SCALE_16_G       0x18 // SCALE_16_G (g) = 3 (0x18 = 000|11|000)
+
+// ECUACIONES DE CONVERSION
+#define SENSITIVITY_ACCEL     2.0/32768.0             // Valor de conversion del Acelerometro (g/LSB) para 2g e 16 bits
+#define SENSITIVITY_GYRO      250.0/32768.0           // Valor de conversion del Giroscopio ((°/s)/LSB) para 250 °/s e 16 bits
+#define SENSITIVITY_TEMP      333.87                  // Valor de sensitividad de la temperatura
+#define TEMP_OFFSET           21                      // Valor de offset de la temperatura
+#define SENSITIVITY_MAGN      (10.0*4800.0)/32768.0   // Valor de conversion del magnetometro (mG/LSB) para 4800uT, 16 bits, (10mG = 1uT)
+
+//----------------------------------------------------------------------------
+//                           DECLARACION DE VARIABLES
+//----------------------------------------------------------------------------
+//double offset_accelx = 334.0, offset_accely = -948.0, offset_accelz = 16252.0;
+//double offset_gyrox = 111.0, offset_gyroy = 25.0, offset_gyroz = -49.0;
+
+// Valores "RAW" de tipo entero
+int16_t raw_accelx, raw_accely, raw_accelz;
+int16_t raw_gyrox, raw_gyroy, raw_gyroz;
+int16_t raw_accelx_2, raw_accely_2, raw_accelz_2;
+int16_t raw_gyrox_2, raw_gyroy_2, raw_gyroz_2;
+
+int16_t raw_temp;
+int16_t raw_magnx, raw_magny, raw_magnz;
+int16_t raw_temp_2;
+int16_t raw_magnx_2, raw_magny_2, raw_magnz_2;
+
+// Valores "RAW" de tipo double 
+   
+// Salidas calibradas
+float accelx, accely, accelz;
+float gyrox, gyroy, gyroz;
+float temp;
+float magnx, magny, magnz;
+
+// Bytes
+char cmd[2];
+char data[1];
+char GirAcel[14];
+char Mag[7];
+
+char cmd_2[2];
+char data_2[1];
+char GirAcel_2[14];
+char Mag_2[7];
+
+
+float buffer[500][8];
+float buffer_2[500][8];
+int i;
+int i_2;
+
+Timer t; //Creacion de un objeto de temporizador
+Timer t_2; //Creacion de un objeto de temporizador
+float timer=0, t_fin=0.009951, cont_timer=0.0;
+float timer_2=0, t_fin_2=0.009951, cont_timer_2=0.0;
+
+
+//.....................................................................
+//                        INICIALIZACION DEL I2C
+//..................................................................... 
+Serial pc(SERIAL_TX, SERIAL_RX);
+I2C i2c (PB_7, PB_6 );//SDA,SCL
+I2C i2c3(PC_9, PA_8 );//SDA,SCL
+
+int main(){
+    // DESACTIVA EL MODO DE HIBERNACION DE LA MPU 9250
+    cmd[0] = 0x6B; // REGISTRO PWR_MGMT_1 
+    cmd[1] = 0x00; 
+    i2c3.write(MPU9250_address, cmd, 2);
+    
+    pc.printf("TEST DE CONEXION DE MPU9250 \n\r");
+    //.....................................................................
+    //        Quien soy yo de la MPU9250
+    //.....................................................................
+    pc.printf("1. Test de conexion MPU9250... \n\r"); // Verifica la conexion
+    cmd[0] = 0x75;
+    i2c3.write(MPU9250_address, cmd, 1);
+    i2c3.read(MPU9250_address, data, 1);
+    if (data[0] != 0x71) { // REGISTRO POR DEFECTO WHO AM I DE LA MPU 9250
+      pc.printf("Error de conexion de MPU9250 \n\r");
+      pc.printf("Opaaa. Error de MPU9250, Quien soy yo? :S. Soy: %#x \n\r",data[0]);
+      pc.printf("\n\r");
+      while (1);
+    }else{
+      pc.printf("Conexion exitosa de MPU9250 \n\r");
+      pc.printf("\n\r");
+    }
+    wait(0.1);  
+
+
+    // Configuracion del giroscopio (Full Scale Gyro Range  = 250 deg/s)
+    cmd[0] = 0x1B; //GYRO_CONFIG 0x1B //Registro de configuracion del giroscopio
+    cmd[1] = 0x00;
+    i2c3.write(MPU9250_address, cmd, 2);                //gyro full scale 250 DPS
+    // Configuracion del acelerometro (Full Scale Accelerometer Range  = 2g)
+    cmd[0] = 0x1C; // ACCEL_CONFIG 0x1C //Registro de configuracion del acelerometro
+    cmd[1] = 0x00;
+    i2c3.write(MPU9250_address, cmd, 2);                //ACC fullscale 2G    
+    wait(0.01);
+    // Desactiva el modo de hibernación del AK8963
+    cmd[0] = 0x37; //
+    cmd[1] = 0x02;
+    i2c3.write(MPU9250_address, cmd, 2);  
+    // Configura el Magnetómetro AK8963
+    cmd[0] = 0x0A; //
+    cmd[1] = 0x16;
+    i2c3.write(MAG_ADDRESS_MAGNETOMETRO, cmd, 2);
+    //.....................................................................
+    //        Magnetómetro
+    //.....................................................................
+    pc.printf("1. Magnetometro... \n\r"); // Verifica la conexión
+    cmd[0] = 0x00;
+    i2c3.write(MAG_ADDRESS_MAGNETOMETRO, cmd, 1);
+    i2c3.read(MAG_ADDRESS_MAGNETOMETRO, data, 1);
+    if (data[0] != 0x48) { // DEFAULT_REGISTER_WHO_AM_I_MPU9250 0x71
+        pc.printf("Error de conexión con el Magnetometro \n\r");
+        pc.printf("¿Quién soy? :S. Soy: %#x \n\r",data[0]);
+        pc.printf("\n\r");
+        while (1);
+    }else{
+        pc.printf("Conexión exitosa Magnetometro \n\r");
+        pc.printf("\n\r");
+    }
+    wait(0.5);
+
+    // DESACTIVA EL MODO DE HIBERNACION DE LA MPU 9250
+    cmd_2[0] = 0x6B; // REGISTRO PWR_MGMT_1 
+    cmd_2[1] = 0x00; 
+    i2c.write(MPU9250_address_2, cmd_2, 2);
+    
+    pc.printf("TEST DE CONEXION DE MPU9250 \n\r");
+    //.....................................................................
+    //        Quien soy yo de la MPU9250
+    //.....................................................................
+    pc.printf("1. Test de conexion MPU9250... \n\r"); // Verifica la conexion
+    cmd_2[0] = 0x75;
+    i2c.write(MPU9250_address_2, cmd_2, 1);
+    i2c.read(MPU9250_address_2, data_2, 1);
+    if (data_2[0] != 0x71) { // REGISTRO POR DEFECTO WHO AM I DE LA MPU 9250
+      pc.printf("Error de conexion de MPU9250 \n\r");
+      pc.printf("Opaaa. Error de MPU9250, Quien soy yo? :S. Soy: %#x \n\r",data_2[0]);
+      pc.printf("\n\r");
+      while (1);
+    }else{
+      pc.printf("Conexion exitosa de MPU9250 \n\r");
+      pc.printf("\n\r");
+    }
+    wait(0.1);  
+
+    // Configuracion del giroscopio (Full Scale Gyro Range  = 250 deg/s)
+    cmd_2[0] = 0x1B; //GYRO_CONFIG 0x1B //Registro de configuracion del giroscopio
+    cmd_2[1] = 0x00;
+    i2c.write(MPU9250_address_2, cmd_2, 2);                //gyro full scale 250 DPS
+    // Configuracion del acelerometro (Full Scale Accelerometer Range  = 2g)
+    cmd_2[0] = 0x1C; // ACCEL_CONFIG 0x1C //Registro de configuracion del acelerometro
+    cmd_2[1] = 0x00;
+    i2c.write(MPU9250_address_2, cmd_2, 2);                //ACC fullscale 2G    
+    wait(0.01);
+    // Desactiva el modo de hibernación del AK8963
+    cmd_2[0] = 0x37; //
+    cmd_2[1] = 0x02;
+    i2c.write(MPU9250_address_2, cmd_2, 2);  
+    // Configura el Magnetómetro AK8963
+    cmd_2[0] = 0x0A; //
+    cmd_2[1] = 0x16;
+    i2c.write(MAG_ADDRESS_MAGNETOMETRO_2, cmd_2, 2);
+    //.....................................................................
+    //        Magnetómetro
+    //.....................................................................
+    pc.printf("1. Magnetometro... \n\r"); // Verifica la conexión
+    cmd_2[0] = 0x00;
+    i2c.write(MAG_ADDRESS_MAGNETOMETRO_2, cmd_2, 1);
+    i2c.read(MAG_ADDRESS_MAGNETOMETRO_2, data_2, 1);
+    if (data_2[0] != 0x48) { // DEFAULT_REGISTER_WHO_AM_I_MPU9250 0x71
+        pc.printf("Error de conexión con el Magnetometro \n\r");
+        pc.printf("¿Quién soy? :S. Soy: %#x \n\r",data_2[0]);
+        pc.printf("\n\r");
+        while (1);
+    }else{
+        pc.printf("Conexión exitosa Magnetometro \n\r");
+        pc.printf("\n\r");
+    }
+    wait(0.01);
+
+
+    while(1) {
+        //.................CONSTRUCCION DE LA MEDICION DE VALORES .................. 
+        if(pc.getc() == 'H'){
+            for(i=0; i<299; i++){
+                t.reset();
+                t.start();
+                cmd[0]=0x3B;
+                i2c3.write(MPU9250_address, cmd, 1);            //Escritura del registro de inicio
+                i2c3.read(MPU9250_address, GirAcel, 14);    //Lectura en rafaga de los valores de la MPU
+                //Datos crudos
+                raw_accelx = GirAcel[0]<<8 | GirAcel[1];    
+                raw_accely = GirAcel[2]<<8 | GirAcel[3];
+                raw_accelz = GirAcel[4]<<8 | GirAcel[5];
+                raw_temp = GirAcel[6]<<8 | GirAcel[7];
+                raw_gyrox = GirAcel[8]<<8 | GirAcel[9];
+                raw_gyroy = GirAcel[10]<<8 | GirAcel[11];
+                raw_gyroz = GirAcel[12]<<8 | GirAcel[13];
+                // Magnetómetro
+                 cmd[0]=0x02; //
+                 i2c3.write(MAG_ADDRESS_MAGNETOMETRO, cmd, 1);            
+                 i2c3.read(MAG_ADDRESS_MAGNETOMETRO, data, 1); 
+                 if(data[0]& 0x01 == 0x01) { // Espera a que se establezca el bit de datos listos del magnetómetro
+                    cmd[0]=0x03; //
+                    i2c3.write(MAG_ADDRESS_MAGNETOMETRO, cmd, 1);            
+                    i2c3.read(MAG_ADDRESS_MAGNETOMETRO, Mag, 7); 
+                    if(!(Mag[6] & 0x08)) {
+                        raw_magnx = (Mag[3] << 8 | Mag[2]);
+                        raw_magny = (Mag[1] << 8 | Mag[0]);
+                        raw_magnz = -(Mag[5] << 8 | Mag[4]);
+                    }
+                 }
+                
+
+                t_2.reset();
+                t_2.start();
+                cmd_2[0]=0x3B;
+                i2c.write(MPU9250_address_2, cmd_2, 1);            //Escritura del registro de inicio
+                i2c.read(MPU9250_address_2, GirAcel_2, 14);    //Lectura en rafaga de los valores de la MPU
+                //Datos crudos
+                raw_accelx_2 = GirAcel_2[0]<<8 | GirAcel_2[1];    
+                raw_accely_2 = GirAcel_2[2]<<8 | GirAcel_2[3];
+                raw_accelz_2 = GirAcel_2[4]<<8 | GirAcel_2[5];
+                raw_temp_2 = GirAcel_2[6]<<8 | GirAcel_2[7];
+                raw_gyrox_2 = GirAcel_2[8]<<8 | GirAcel_2[9];
+                raw_gyroy_2 = GirAcel_2[10]<<8 | GirAcel_2[11];
+                raw_gyroz_2 = GirAcel_2[12]<<8 | GirAcel_2[13];
+                // Magnetómetro
+                 cmd_2[0]=0x02; //
+                 i2c.write(MAG_ADDRESS_MAGNETOMETRO_2, cmd_2, 1);            
+                 i2c.read(MAG_ADDRESS_MAGNETOMETRO_2, data_2, 1); 
+                 if(data_2[0]& 0x01 == 0x01) { // Espera a que se establezca el bit de datos listos del magnetómetro
+                    cmd_2[0]=0x03; //
+                    i2c.write(MAG_ADDRESS_MAGNETOMETRO_2, cmd_2, 1);            
+                    i2c.read(MAG_ADDRESS_MAGNETOMETRO_2, Mag_2, 7); 
+                    if(!(Mag_2[6] & 0x08)) {
+                        raw_magnx_2 = (Mag_2[3] << 8 | Mag_2[2]);
+                        raw_magny_2 = (Mag_2[1] << 8 | Mag_2[0]);
+                        raw_magnz_2 = -(Mag_2[5] << 8 | Mag_2[4]);
+                    }
+                 }
+                
+                wait_us(8363);
+                t.stop();
+                timer = t.read();
+                cont_timer += timer;
+            
+                pc.printf("%d \t %.2f \t %.2f \t %.2f \t %.2f \t %.2f \t %.2f \t %.2f \t %.2f \t %.2f \t %.2f \t %.2f \t %.2f \t %.2f \t %.2f \t %.2f \t %.2f \t %.2f \t %.2f \n\r",i, (float)raw_accelx, (float)raw_accely, (float)raw_accelz, (float)raw_gyrox, (float)raw_gyroy, (float)raw_gyroz, (float)raw_magnx, (float)raw_magny, (float)raw_magnz, (float)raw_accelx_2, (float)raw_accely_2, (float)raw_accelz_2, (float)raw_gyrox_2, (float)raw_gyroy_2, (float)raw_gyroz_2, (float)raw_magnx_2, (float)raw_magny_2, (float)raw_magnz_2);
+                wait(0.01);
+                
+
+               
+
+               
+
+            }
+            
+        } 
+    }
+} 
